@@ -31,12 +31,12 @@ def CF_differentiate(X, dt):
     """
 
     X_dot = np.zeros_like(X)
-    X_dot[0, :] = (X[0, :] - X[1, :])/dt
-    X_dot[1:-1, :] = (X[0:-2, :] - X[2:, :])/dt
+    X_dot[0, :] = (X[1, :] - X[0, :])/dt
+    X_dot[1:-1, :] = (X[2:, :] - X[:-2,:])/(2*dt)
     X_dot[-1, :] = (X[-1, :] - X[-2, :])/dt
     return X_dot
 
-def Tseries_LS(X: np.ndarray, dt: float, differentiator):
+def Tseries_LS(X: np.ndarray, dt: float, differentiator = CF_differentiate):
     """
     Calculate the Linear Model weights for a Time series data using Least Squares Method.
 
@@ -54,21 +54,27 @@ def Tseries_LS(X: np.ndarray, dt: float, differentiator):
 
     # Create Library
     X_dot = differentiator(X, dt)
-    Library = np.hstack([np.ones(X.shape[0], dtype=float), X])
+    Library = np.hstack([np.ones((X.shape[0],1), dtype=float), X])
     # Solve using Pseudoinverse
-    weights = np.linalg.pinv(Library) @ X_dot
+    weights = np.linalg.pinv(Library[1:-1,:]) @ X_dot[1:-1,:]
 
     # Rescale weights
 
-    intercept_std = weights[0,:]
-    coeffs_std = weights[1:,:]
+    intercept_std = weights[0, :]  # (n,)
+    coeffs_std = weights[1:, :].T  # (n×n): columns are equations
 
-    D = np.diag(scales)
-    D_inv = np.diag(1 / scales)
-    coeffs_raw = D @ coeffs_std @ D_inv
-    intercept_raw = D @ intercept_std - coeffs_raw @ means
-    weights_raw = np.hstack([intercept_raw, coeffs_raw])
+    D = np.diag(scales)  # (n×n)
+    D_inv = np.diag(1.0 / scales)  # (n×n)
+
+    coeffs_raw = D @ coeffs_std @ D_inv  # (n×n)
+    intercept_raw = (D @ intercept_std) - (coeffs_raw @ means)  # (n,)
+
+    weights_raw = np.zeros((coeffs_raw.shape[0], coeffs_raw.shape[1] + 1), dtype=float)
+    weights_raw[:, 0] = intercept_raw  # write intercepts into column
+    weights_raw[:, 1:] = coeffs_raw
+
     return weights_raw
+
 
 
 
