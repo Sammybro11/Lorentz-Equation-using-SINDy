@@ -1,6 +1,9 @@
 # Constructing Least Squares Method
 # Implements Identification of Non-Linear Dynamics without Sparsity
 
+import numpy as np
+
+eps = 1e-6
 '''
 Inputs:
   - Time series X ∈ R^{m×n}, sampled every Δt
@@ -57,7 +60,16 @@ def Tseries_LS(X: np.ndarray, dt: float, differentiator):
 
     # Rescale weights
 
-    weights = (weights * scales)
+    intercept_std = weights[0,:]
+    coeffs_std = weights[1:,:]
+
+    D = np.diag(scales)
+    D_inv = np.diag(1 / scales)
+    coeffs_raw = D @ coeffs_std @ D_inv
+    intercept_raw = D @ intercept_std - coeffs_raw @ means
+    weights_raw = np.hstack([intercept_raw, coeffs_raw])
+    return weights_raw
+
 
 
 
