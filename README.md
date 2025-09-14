@@ -1,0 +1,1 @@
+# Dynamics of Lorentz Equation using SINDy
