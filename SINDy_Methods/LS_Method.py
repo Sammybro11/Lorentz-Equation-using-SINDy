@@ -2,25 +2,9 @@
 # Implements Identification of Non-Linear Dynamics without Sparsity
 
 import numpy as np
+from SINDy_Methods.helper_functions import polynomial_libarybuilder
 
 eps = 1e-6
-'''
-Inputs:
-  - Time series X ∈ R^{m×n}, sampled every Δt
-  - Numerical differentiation routine to compute Xdot from X
-Procedure:
-  1) Compute Xdot = differentiate(X, Δt)  // centered difference or TV-regularized
-  2) Build library Θ = concat_columns(ones(m,1), X)  // linear + intercept
-  3) Optionally standardize Θ columns except the intercept for conditioning
-  4) For j in 1..n:
-       ξ_j = least_squares(Θ, Xdot[:, j])  // pseudoinverse or stable solver
-  5) Stack Xi = [ξ_1, …, ξ_n]  // shape (1+n)×n
-  6) Extract b = Xi[0, :], A = Xi[1:, :]
-Outputs:
-  - Linear model: ẋ = b + A x
-Validation:
-  - Simulate ẋ = b + A x from held-out initial states and compare to data
-'''
 
 def CF_differentiate(X, dt):
     """
@@ -36,16 +20,19 @@ def CF_differentiate(X, dt):
     X_dot[-1, :] = (X[-1, :] - X[-2, :])/dt
     return X_dot
 
-def Tseries_LS(X: np.ndarray, dt: float, differentiator = CF_differentiate):
+def Tseries_LS(X: np.ndarray, dt: float, differentiator = CF_differentiate, linearity =  True, degree = 1):
     """
     Calculate the Linear Model weights for a Time series data using Least Squares Method.
 
     :param X: [m x n] matrix for m time series and n states
-    :param differentiator: function used to compute derivative of X
     :param dt: time step
-    :return:
+    :param differentiator: function used to compute derivative of X
+    :param linearity: Boolean to determine if the library should be built with non-linear terms
+    :param degree: Degree of non-linear terms
+    :return: weights_raw
     """
     # Standardizing X
+
     means = np.mean(X, axis=0)
     X_c = X - means
     scales = X_c.std(axis=0)
@@ -54,26 +41,33 @@ def Tseries_LS(X: np.ndarray, dt: float, differentiator = CF_differentiate):
 
     # Create Library
     X_dot = differentiator(X, dt)
-    Library = np.hstack([np.ones((X.shape[0],1), dtype=float), X])
+    if linearity:
+        Library = polynomial_libarybuilder(X, degree = 1)
+    else:
+        Library = polynomial_libarybuilder(X, degree = 2)
+        print(Library)
     # Solve using Pseudoinverse
     weights = np.linalg.pinv(Library[1:-1,:]) @ X_dot[1:-1,:]
+    print(weights)
+    if linearity:
+        # Rescale weights
 
-    # Rescale weights
+        intercept_std = weights[0, :]  # (n,)
+        coeffs_std = weights[1:, :].T  # (n×n): columns are equations
 
-    intercept_std = weights[0, :]  # (n,)
-    coeffs_std = weights[1:, :].T  # (n×n): columns are equations
+        D = np.diag(scales)  # (n×n)
+        D_inv = np.diag(1.0 / scales)  # (n×n)
+        # This part is wrong in non-linear fix it gng
+        coeffs_raw = D @ coeffs_std @ D_inv  # (n×n)
+        intercept_raw = (D @ intercept_std) - (coeffs_raw @ means)  # (n,)
 
-    D = np.diag(scales)  # (n×n)
-    D_inv = np.diag(1.0 / scales)  # (n×n)
+        weights_raw = np.zeros((coeffs_raw.shape[0], coeffs_raw.shape[1] + 1), dtype=float)
+        weights_raw[:, 0] = intercept_raw
+        weights_raw[:, 1:] = coeffs_raw
 
-    coeffs_raw = D @ coeffs_std @ D_inv  # (n×n)
-    intercept_raw = (D @ intercept_std) - (coeffs_raw @ means)  # (n,)
-
-    weights_raw = np.zeros((coeffs_raw.shape[0], coeffs_raw.shape[1] + 1), dtype=float)
-    weights_raw[:, 0] = intercept_raw  # write intercepts into column
-    weights_raw[:, 1:] = coeffs_raw
-
-    return weights_raw
+        return weights_raw
+    else:
+        return weights
 
 
 
